@@ -91,7 +91,11 @@ function requestHandler(request, response, retries = 0) {
         response.end();
       }
       proxyResponse.on("data", chunk => {
-        response.write(chunk, "binary");
+        try{
+          response.write(chunk, "binary");
+        }catch(e){
+          console.log("[error]", e.message);
+        }
       });
       proxyResponse.on("end", () => {
         console.log('Request Ends')
