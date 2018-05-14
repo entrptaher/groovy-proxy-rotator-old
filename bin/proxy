@@ -92,7 +92,9 @@ function requestHandler(request, response, retries = 0) {
           response.end();
         }
         proxyResponse.on("data", chunk => {
-          response.write(chunk, "binary");
+          if (!response.finished) {
+            response.write(chunk, "binary");
+          }
         });
         proxyResponse.on("end", () => {
           console.log("Request Ends");
@@ -116,62 +118,65 @@ function requestHandler(request, response, retries = 0) {
 }
 
 function socketHandler(request, socketRequest, retries = 0) {
-  try{
-  console.log("Request %s %s", request.method, request.url);
-  const options = getOptions(request, rotateProxyAddress(), true);
+  try {
+    console.log("Request %s %s", request.method, request.url);
+    const options = getOptions(request, rotateProxyAddress(), true);
 
-  const proxy = http.request(options);
-  proxy
-    .on("error", err => {
-      console.log(`[error] ${err}`);
-      if (++retries < maxRetries) {
-        setTimeout(() => {
-          socketHandler(request, socketRequest, retries);
-        }, retryDelay);
-      } else {
-        socketRequest.end();
-      }
-      //process.exit();
-    })
-    .on("connect", (res, socket) => {
-      // assert.equal(res.statusCode, 200);
-      // assert.equal(head.length, 0);
-      socketRequest.write(
-        `HTTP/${request.httpVersion} 200 Connection established\r\n\r\n`
-      );
-
-      // tunneling to host
-      socket
-        .on("data", chunk => {
-          socketRequest.write(chunk, "binary");
-        })
-        .on("end", () => {
+    const proxy = http.request(options);
+    proxy
+      .on("error", err => {
+        console.log(`[error] ${err}`);
+        if (++retries < maxRetries) {
+          setTimeout(() => {
+            socketHandler(request, socketRequest, retries);
+          }, retryDelay);
+        } else {
           socketRequest.end();
-        })
-        .on("error", () => {
-          // notify client about an error
-          socketRequest.write(
-            `HTTP/${request.httpVersion} 500 Connection error\r\n\r\n`
-          );
-          socketRequest.end();
-        });
+        }
+        //process.exit();
+      })
+      .on("connect", (res, socket) => {
+        // assert.equal(res.statusCode, 200);
+        // assert.equal(head.length, 0);
+        socketRequest.write(
+          `HTTP/${request.httpVersion} 200 Connection established\r\n\r\n`
+        );
 
-      // tunneling to client
-      socketRequest
-        .on("data", chunk => {
-          socket.write(chunk, "binary");
-        })
-        .on("end", () => {
-          socket.end();
-        })
-        .on("error", () => {
-          socket.end();
-        });
-    })
-    .end();
-   } catch(e){
-     console.log("[error]", e.message);
-    }
+        // tunneling to host
+        socket
+          .on("data", chunk => {
+            if (!socket.finished) {
+              socket.write(chunk, "binary");
+            }
+            socketRequest.write(chunk, "binary");
+          })
+          .on("end", () => {
+            socketRequest.end();
+          })
+          .on("error", () => {
+            // notify client about an error
+            socketRequest.write(
+              `HTTP/${request.httpVersion} 500 Connection error\r\n\r\n`
+            );
+            socketRequest.end();
+          });
+
+        // tunneling to client
+        socketRequest
+          .on("data", chunk => {
+            socket.write(chunk, "binary");
+          })
+          .on("end", () => {
+            socket.end();
+          })
+          .on("error", () => {
+            socket.end();
+          });
+      })
+      .end();
+  } catch (e) {
+    console.log("[error]", e.message);
+  }
 }
 
 server.on("request", requestHandler);
