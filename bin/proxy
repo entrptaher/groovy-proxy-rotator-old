@@ -8,7 +8,7 @@ const url = require("url");
 const path = require("path");
 const PQueue = require("p-queue");
 
-var argv = require('minimist')(process.argv.slice(2));
+var argv = require("minimist")(process.argv.slice(2));
 
 const proxyPort = process.env.PROXYPORT || 60000;
 const queue = new PQueue({ concurrency: 1 });
@@ -68,55 +68,55 @@ const getOptions = (request, { port, host, auth }, ssl) => {
 const server = http.createServer();
 
 function requestHandler(request, response, retries = 0) {
-  console.log("Request %s %s", request.method, request.url);
-  const options = getOptions(request, rotateProxyAddress());
-  const proxy = http.request(options);
+  try {
+    console.log("Request %s %s", request.method, request.url);
+    const options = getOptions(request, rotateProxyAddress());
+    const proxy = http.request(options);
 
-  proxy
-    .on("error", err => {
-      console.log(`[error] ${err}`);
-      response.end();
-      if(++retries < maxRetries){
-        setTimeout(()=>{
-          requestHandler(request, response, retries)
-        }, retryDelay);
-      }else{
+    proxy
+      .on("error", err => {
+        console.log(`[error] ${err}`);
         response.end();
-      }
-    })
-    .on("response", proxyResponse => {
-      console.log("Response received");
-      if (proxyResponse.statusCode === 407) {
-        console.log("[error] AUTH REQUIRED");
-        response.end();
-      }
-      proxyResponse.on("data", chunk => {
-        try{
-          response.write(chunk, "binary");
-        }catch(e){
-          console.log("[error]", e.message);
+        if (++retries < maxRetries) {
+          setTimeout(() => {
+            requestHandler(request, response, retries);
+          }, retryDelay);
+        } else {
+          response.end();
         }
+      })
+      .on("response", proxyResponse => {
+        console.log("Response received");
+        if (proxyResponse.statusCode === 407) {
+          console.log("[error] AUTH REQUIRED");
+          response.end();
+        }
+        proxyResponse.on("data", chunk => {
+          response.write(chunk, "binary");
+        });
+        proxyResponse.on("end", () => {
+          console.log("Request Ends");
+          response.end();
+        });
+        response.writeHead(proxyResponse.statusCode, proxyResponse.headers);
       });
-      proxyResponse.on("end", () => {
-        console.log('Request Ends')
-        response.end();
+
+    proxy.end();
+
+    request
+      .on("data", chunk => {
+        proxy.write(chunk, "binary");
+      })
+      .on("end", () => {
+        proxy.end();
       });
-      response.writeHead(proxyResponse.statusCode, proxyResponse.headers);
-    })
-
-  proxy.end();
-
-  request
-    .on("data", chunk => {
-      proxy.write(chunk, "binary");
-    })
-    .on("end", () => {
-      proxy.end();
-    });
-
+  } catch (e) {
+    console.log("[error]", e.message);
+  }
 }
 
-function socketHandler(request, socketRequest, retries = 0){
+function socketHandler(request, socketRequest, retries = 0) {
+  try{
   console.log("Request %s %s", request.method, request.url);
   const options = getOptions(request, rotateProxyAddress(), true);
 
@@ -124,11 +124,11 @@ function socketHandler(request, socketRequest, retries = 0){
   proxy
     .on("error", err => {
       console.log(`[error] ${err}`);
-      if(++retries < maxRetries){
-        setTimeout(()=>{
-          socketHandler(request, socketRequest, retries)
+      if (++retries < maxRetries) {
+        setTimeout(() => {
+          socketHandler(request, socketRequest, retries);
         }, retryDelay);
-      }else{
+      } else {
         socketRequest.end();
       }
       //process.exit();
@@ -169,8 +169,10 @@ function socketHandler(request, socketRequest, retries = 0){
         });
     })
     .end();
+   } catch(e){
+     console.log("[error]", e.message);
+    }
 }
-
 
 server.on("request", requestHandler);
 server.on("connect", socketHandler);
